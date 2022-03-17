@@ -1,3 +1,5 @@
+mod packetprocessor;
+
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -5,7 +7,8 @@ use std::sync::Arc;
 use std::thread::{spawn, JoinHandle};
 use std::{thread, time};
 
-use rayon::prelude::*;
+use crate::packetprocessor::PacketProcessor;
+
 
 fn udp_sampler(sender: Sender<Vec<u64>>, cancle_flag: Arc<AtomicBool>) {
     let socket = UdpSocket::bind("127.0.0.1:50000").expect("couldn't bind to address");
@@ -26,7 +29,7 @@ fn udp_sampler(sender: Sender<Vec<u64>>, cancle_flag: Arc<AtomicBool>) {
             sender
                 .send(
                     (0..bytes_recved / 8)
-                        .into_par_iter()
+                        .into_iter()
                         .map(|i| {
                             u64::from_le_bytes(
                                 buf[i * 8..i * 8 + 8]
@@ -46,26 +49,6 @@ fn udp_sampler(sender: Sender<Vec<u64>>, cancle_flag: Arc<AtomicBool>) {
             break;
         }
     }
-}
-
-fn packet_processor(pixdata: Vec<u64>) {
-    // extract trigger events from data stream
-    let triggers = pixdata
-        .iter()
-        .filter(|x| {
-            ((((**x & 0xF000000000000000) >> 60) & 0xF) == (0x4 | 0x6))
-          & ((((**x & 0x0F00000000000000) >> 56) & 0xF) == 0xF)
-        })
-        .cloned()
-        .collect::<Vec<u64>>();
-        
-    // extract pixel events from data stream 
-    let pixels = pixdata
-        .into_iter()
-        .filter(|x| (((x & 0xF000000000000000) >> 60) & 0xF) == (0xA | 0xB))
-        .collect::<Vec<u64>>();
-
-    
 }
 
 fn start_udp_sampler(
@@ -88,7 +71,7 @@ fn start_packet_processor(
 ) -> JoinHandle<()> {
     spawn(move || {
         for (i, data) in tpx_raw.into_iter().enumerate() {
-            packet_processor(data);
+            PacketProcessor::process(data);
             /*
             println!("{} received {:?}", i, data);
 
